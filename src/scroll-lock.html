@@ -1,0 +1,596 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Scroll Lock + Focus Demo</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; }
+
+    :root {
+      --accent: #0066cc;
+      --danger: #cc2200;
+      --ok: #006622;
+      --bg: #f5f7f9;
+      --border: #d0d7e0;
+      --mono: "SF Mono", "Fira Code", monospace;
+    }
+
+    body {
+      margin: 0;
+      font-family: "Helvetica Neue", "Helvetica", "Arial", sans-serif;
+      font-size: 15px;
+      line-height: 1.5;
+      color: #333;
+      background: #fff;
+    }
+
+    /* ── sticky debug bar ── */
+    #debug-bar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: #1a1a2e;
+      color: #e0e0ff;
+      font-family: var(--mono);
+      font-size: 12px;
+      line-height: 1.6;
+      padding: 8px 12px;
+      border-bottom: 2px solid #444;
+    }
+
+    #debug-bar .row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0 24px;
+    }
+
+    #debug-bar .label { color: #8888bb; }
+    #debug-bar .val   { color: #88ffcc; font-weight: bold; }
+    #debug-bar .val.changed { color: #ffcc44; }
+
+    /* ── main content ── */
+    .page {
+      max-width: 600px;
+      margin: 0 auto;
+      padding: 16px;
+    }
+
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 15px; margin: 20px 0 8px; border-bottom: 1px solid var(--border); padding-bottom: 4px; }
+    p  { margin: 0 0 10px; color: #555; font-size: 13px; }
+
+    /* ── control grid ── */
+    .controls {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+
+    @media (max-width: 380px) { .controls { grid-template-columns: 1fr; } }
+
+    .ctrl-btn {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      background: var(--bg);
+      border: 1.5px solid var(--border);
+      border-radius: 8px;
+      padding: 8px 10px;
+      cursor: pointer;
+      text-align: left;
+      transition: background 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .ctrl-btn .prop {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #555;
+    }
+
+    .ctrl-btn .state {
+      font-family: var(--mono);
+      font-size: 13px;
+      font-weight: bold;
+      color: var(--danger);
+      margin-top: 2px;
+    }
+
+    .ctrl-btn.active {
+      border-color: var(--accent);
+      background: #e8f0fc;
+    }
+
+    .ctrl-btn.active .state { color: var(--ok); }
+
+    /* ── inputs ── */
+    .input-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 16px;
+    }
+
+    .input-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .input-label {
+      font-family: var(--mono);
+      font-size: 11px;
+      color: #666;
+      width: 90px;
+      flex-shrink: 0;
+    }
+
+    input[type="text"], input[type="email"], input[type="number"] {
+      flex: 1;
+      font-size: 16px; /* 16px prevents iOS zoom */
+      padding: 8px 10px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      background: #fff;
+      color: #333;
+      outline: none;
+      -webkit-appearance: none;
+    }
+
+    input:focus {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(0,102,204,0.15);
+    }
+
+    /* ── action buttons ── */
+    .action-row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 12px;
+    }
+
+    .action-btn {
+      padding: 8px 14px;
+      font-size: 13px;
+      border: 1.5px solid var(--border);
+      border-radius: 6px;
+      background: var(--bg);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .action-btn:active { background: #dde; }
+
+    /* ── event log ── */
+    #event-log {
+      font-family: var(--mono);
+      font-size: 11px;
+      background: #111;
+      color: #ccc;
+      border-radius: 6px;
+      padding: 10px;
+      height: 180px;
+      overflow-y: auto;
+      line-height: 1.7;
+    }
+
+    #event-log .ts   { color: #666; }
+    #event-log .focus-ev { color: #88ffcc; }
+    #event-log .blur-ev  { color: #ff9944; }
+    #event-log .scroll-ev { color: #8899ff; }
+    #event-log .vv-ev  { color: #ff88cc; }
+    #event-log .info-ev  { color: #dddd88; }
+
+    /* ── filler content ── */
+    .filler {
+      background: repeating-linear-gradient(
+        180deg,
+        #f0f4ff 0px, #f0f4ff 40px,
+        #e8eef8 40px, #e8eef8 80px
+      );
+      border-radius: 8px;
+      padding: 16px;
+      margin-top: 16px;
+      color: #445;
+      font-size: 13px;
+    }
+
+    .filler p { margin: 0 0 6px; color: #445; }
+
+    /* ── status pill ── */
+    .status-pill {
+      display: inline-block;
+      font-family: var(--mono);
+      font-size: 11px;
+      padding: 2px 8px;
+      border-radius: 20px;
+      background: #eee;
+      color: #555;
+      margin-left: 6px;
+    }
+
+    .status-pill.locked { background: #ffeedd; color: var(--danger); }
+    .status-pill.unlocked { background: #ddfff0; color: var(--ok); }
+  </style>
+</head>
+<body>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  STICKY DEBUG BAR                                          -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div id="debug-bar">
+  <div class="row" id="vp-row">
+    <span><span class="label">layout&nbsp;</span><span class="val" id="d-layout">–</span></span>
+    <span><span class="label">visual&nbsp;</span><span class="val" id="d-visual">–</span></span>
+    <span><span class="label">scroll&nbsp;</span><span class="val" id="d-scroll">–</span></span>
+    <span><span class="label">vv.offset&nbsp;</span><span class="val" id="d-vvoffset">–</span></span>
+    <span><span class="label">vv.page&nbsp;</span><span class="val" id="d-vvpage">–</span></span>
+  </div>
+  <div class="row" style="margin-top:4px">
+    <span><span class="label">body.overflow&nbsp;</span><span class="val" id="d-bodyov">–</span></span>
+    <span><span class="label">html.overflow&nbsp;</span><span class="val" id="d-htmlov">–</span></span>
+    <span><span class="label">body.pos&nbsp;</span><span class="val" id="d-bodypos">–</span></span>
+    <span><span class="label">focus&nbsp;</span><span class="val" id="d-focus">none</span></span>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════ -->
+<!--  MAIN PAGE                                                 -->
+<!-- ═══════════════════════════════════════════════════════════ -->
+<div class="page">
+
+  <h1>Scroll Lock &amp; Focus Demo
+    <span class="status-pill" id="lock-pill">unlocked</span>
+  </h1>
+  <p>Explore how <code>overflow</code> / <code>position:fixed</code> on the body interacts with keyboard presentation on iOS Safari.</p>
+
+  <!-- ── SCROLL LOCK CONTROLS ── -->
+  <h2>Scroll lock properties</h2>
+  <div class="controls">
+
+    <button class="ctrl-btn" id="btn-body-overflow" onclick="toggleBodyOverflow()">
+      <span class="prop">document.body.style.overflow</span>
+      <span class="state" id="lbl-body-overflow">= "" (default)</span>
+    </button>
+
+    <button class="ctrl-btn" id="btn-html-overflow" onclick="toggleHtmlOverflow()">
+      <span class="prop">document.documentElement.style.overflow</span>
+      <span class="state" id="lbl-html-overflow">= "" (default)</span>
+    </button>
+
+    <button class="ctrl-btn" id="btn-body-fixed" onclick="toggleBodyFixed()">
+      <span class="prop">document.body.style.position</span>
+      <span class="state" id="lbl-body-fixed">= "" (default)</span>
+    </button>
+
+    <button class="ctrl-btn" id="btn-touch-action" onclick="toggleTouchAction()">
+      <span class="prop">document.body.style.touchAction</span>
+      <span class="state" id="lbl-touch-action">= "" (default)</span>
+    </button>
+
+  </div>
+
+  <div class="action-row">
+    <button class="action-btn" onclick="resetAll()">Reset all</button>
+    <button class="action-btn" onclick="scrollToTop()">Scroll to top</button>
+    <button class="action-btn" onclick="scrollToBottom()">Scroll to bottom</button>
+    <button class="action-btn" onclick="clearLog()">Clear log</button>
+  </div>
+
+  <!-- ── TEXT INPUTS ── -->
+  <h2>Focus targets</h2>
+  <p>Tap each input to trigger keyboard + focus. Watch the debug bar and log for changes.</p>
+  <div class="input-group">
+    <div class="input-row">
+      <span class="input-label">input #1</span>
+      <input type="text" id="inp1" placeholder="type here…" autocomplete="off" autocorrect="off"
+        onfocus="onFocus('inp1')" onblur="onBlur('inp1')">
+    </div>
+    <div class="input-row">
+      <span class="input-label">input #2</span>
+      <input type="text" id="inp2" placeholder="type here…" autocomplete="off" autocorrect="off"
+        onfocus="onFocus('inp2')" onblur="onBlur('inp2')">
+    </div>
+    <div class="input-row">
+      <span class="input-label">input #3</span>
+      <input type="text" id="inp3" placeholder="below fold →" autocomplete="off" autocorrect="off"
+        onfocus="onFocus('inp3')" onblur="onBlur('inp3')">
+    </div>
+  </div>
+
+  <div class="action-row">
+    <button class="action-btn" onclick="blurAll()">Dismiss keyboard (blur)</button>
+    <button class="action-btn" onclick="focusNext()">Focus next input</button>
+  </div>
+
+  <!-- ── EVENT LOG ── -->
+  <h2>Event log</h2>
+  <div id="event-log"></div>
+
+  <!-- ── FILLER ── -->
+  <div class="filler">
+    <p><strong>Scrollable content below</strong></p>
+    <p>Scroll down to push input #3 below the fold, then tap it while scroll is locked or unlocked to observe the auto-scroll / position jump.</p>
+    <!-- lots of filler paragraphs -->
+    <p>Line 1 — The quick brown fox jumps over the lazy dog.</p>
+    <p>Line 2 — Pack my box with five dozen liquor jugs.</p>
+    <p>Line 3 — How vexingly quick daft zebras jump!</p>
+    <p>Line 4 — The five boxing wizards jump quickly.</p>
+    <p>Line 5 — Sphinx of black quartz, judge my vow.</p>
+    <p>Line 6 — Waltz, bad nymph, for quick jigs vex.</p>
+    <p>Line 7 — Mr. Jock, TV quiz PhD, bags few lynx.</p>
+    <p>Line 8 — Jump! Quick! Vex bad frowzy nymphs.</p>
+    <p>Line 9 — Bright vixens jump; dozy fowl quack.</p>
+    <p>Line 10 — Few quips galvanized the mock jury box.</p>
+    <p>Line 11 — Go, lazy fat vixen; be shrewd, jump quickly.</p>
+    <p>Line 12 — Crazy Fredrick bought many very exquisite opal jewels.</p>
+    <p>Line 13 — We promptly judged antique ivory buckles for the next prize.</p>
+    <p>Line 14 — A mad boxer shot a quick, gloved jab to the jaw of his dizzy opponent.</p>
+    <p>Line 15 — The job requires extra pluck and zeal from every young wage earner.</p>
+    <p>Line 16 — Sixty zippers were quickly picked from the woven jute bag.</p>
+    <p>Line 17 — A quart jar of oil mixed with zinc oxide makes a very bright paint.</p>
+    <p>Line 18 — All questions asked by five watched experts amaze the judge.</p>
+    <p>Line 19 — Jack amazed a few girls by dropping the antique onyx vase.</p>
+    <p>Line 20 — The wizard quickly jinxed the gnomes before they vaporized.</p>
+    <p>⬆ Input #3 is above this filler block. Scroll so it's off-screen.</p>
+    <div class="input-row" style="background:transparent;padding:0;margin-top:12px">
+      <span class="input-label" style="color:#445">input #4<br>(deep)</span>
+      <input type="text" id="inp4" placeholder="deep in scroll…" autocomplete="off" autocorrect="off"
+        style="background:#fff"
+        onfocus="onFocus('inp4')" onblur="onBlur('inp4')">
+    </div>
+    <p style="margin-top:12px">Line 21 — Sixty zippers quickly picked from bag.</p>
+    <p>Line 22 — How razorback jumping frogs can level six piqued gymnasts.</p>
+    <p>Line 23 — Murky haze enveloped a city as jarring quakes broke forty-six windows.</p>
+    <p>Line 24 — The black stove pipe hat fell from the oak table.</p>
+    <p>Line 25 — An inspired calligrapher can create pages of beauty using stick ink.</p>
+    <p>☝ End of filler. You've reached the bottom.</p>
+  </div>
+
+</div><!-- .page -->
+
+<script>
+// ─── state ───────────────────────────────────────────────────
+const state = {
+  bodyOverflow: false,
+  htmlOverflow: false,
+  bodyFixed:    false,
+  touchAction:  false,
+  savedScrollY: 0,
+  focusCycle:   0,
+}
+
+const INPUTS = ['inp1', 'inp2', 'inp3', 'inp4']
+
+// ─── debug bar ───────────────────────────────────────────────
+const prevVals = {}
+
+function setDebugVal(id, val) {
+  const el = document.getElementById(id)
+  if (!el) return
+  const changed = prevVals[id] !== undefined && prevVals[id] !== val
+  prevVals[id] = val
+  el.textContent = val
+  if (changed) {
+    el.classList.add('changed')
+    clearTimeout(el._changeTimer)
+    el._changeTimer = setTimeout(() => el.classList.remove('changed'), 1200)
+  }
+}
+
+function updateDebug() {
+  const lv = window
+  const vv = window.visualViewport
+
+  setDebugVal('d-layout',  `${lv.innerWidth}×${lv.innerHeight}`)
+  setDebugVal('d-scroll',  `${Math.round(lv.scrollX)},${Math.round(lv.scrollY)}`)
+
+  if (vv) {
+    setDebugVal('d-visual',   `${Math.round(vv.width)}×${Math.round(vv.height)}`)
+    setDebugVal('d-vvoffset', `${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)}`)
+    setDebugVal('d-vvpage',   `${Math.round(vv.pageLeft)},${Math.round(vv.pageTop)}`)
+  } else {
+    setDebugVal('d-visual',   'n/a')
+    setDebugVal('d-vvoffset', 'n/a')
+    setDebugVal('d-vvpage',   'n/a')
+  }
+
+  setDebugVal('d-bodyov',  `"${document.body.style.overflow || ''}"`)
+  setDebugVal('d-htmlov',  `"${document.documentElement.style.overflow || ''}"`)
+  setDebugVal('d-bodypos', `"${document.body.style.position || ''}"`)
+
+  updateLockPill()
+}
+
+function updateLockPill() {
+  const locked = state.bodyOverflow || state.htmlOverflow || state.bodyFixed || state.touchAction
+  const pill = document.getElementById('lock-pill')
+  pill.textContent = locked ? 'LOCKED' : 'unlocked'
+  pill.className = 'status-pill ' + (locked ? 'locked' : 'unlocked')
+}
+
+// ─── toggle controls ─────────────────────────────────────────
+function toggleBodyOverflow() {
+  state.bodyOverflow = !state.bodyOverflow
+  if (state.bodyOverflow) {
+    document.body.style.overflow = 'hidden'
+    logEvent('info', 'body.overflow = "hidden"')
+  } else {
+    document.body.style.overflow = ''
+    logEvent('info', 'body.overflow = "" (cleared)')
+  }
+  syncButton('btn-body-overflow', 'lbl-body-overflow',
+    state.bodyOverflow, '= "hidden"', '= "" (default)')
+  updateDebug()
+}
+
+function toggleHtmlOverflow() {
+  state.htmlOverflow = !state.htmlOverflow
+  if (state.htmlOverflow) {
+    document.documentElement.style.overflow = 'hidden'
+    logEvent('info', 'html.overflow = "hidden"')
+  } else {
+    document.documentElement.style.overflow = ''
+    logEvent('info', 'html.overflow = "" (cleared)')
+  }
+  syncButton('btn-html-overflow', 'lbl-html-overflow',
+    state.htmlOverflow, '= "hidden"', '= "" (default)')
+  updateDebug()
+}
+
+function toggleBodyFixed() {
+  state.bodyFixed = !state.bodyFixed
+  if (state.bodyFixed) {
+    state.savedScrollY = window.scrollY
+    document.body.style.position = 'fixed'
+    document.body.style.top = `-${state.savedScrollY}px`
+    document.body.style.width = '100%'
+    logEvent('info', `body.position = "fixed", top = -${state.savedScrollY}px`)
+  } else {
+    document.body.style.position = ''
+    document.body.style.top = ''
+    document.body.style.width = ''
+    window.scrollTo(0, state.savedScrollY)
+    logEvent('info', `body.position = "" (cleared), restored scrollY=${state.savedScrollY}`)
+  }
+  syncButton('btn-body-fixed', 'lbl-body-fixed',
+    state.bodyFixed, '= "fixed"', '= "" (default)')
+  updateDebug()
+}
+
+function toggleTouchAction() {
+  state.touchAction = !state.touchAction
+  document.body.style.touchAction = state.touchAction ? 'none' : ''
+  logEvent('info', `body.touchAction = "${state.touchAction ? 'none' : ''}"`)
+  syncButton('btn-touch-action', 'lbl-touch-action',
+    state.touchAction, '= "none"', '= "" (default)')
+  updateDebug()
+}
+
+function syncButton(btnId, lblId, active, onLabel, offLabel) {
+  const btn = document.getElementById(btnId)
+  const lbl = document.getElementById(lblId)
+  btn.classList.toggle('active', active)
+  lbl.textContent = active ? onLabel : offLabel
+}
+
+function resetAll() {
+  if (state.bodyFixed) toggleBodyFixed()
+  if (state.bodyOverflow) toggleBodyOverflow()
+  if (state.htmlOverflow) toggleHtmlOverflow()
+  if (state.touchAction) toggleTouchAction()
+  logEvent('info', '— reset all —')
+  updateDebug()
+}
+
+function scrollToTop() {
+  window.scrollTo({ top: 0, behavior: 'smooth' })
+  logEvent('info', 'scrollTo top')
+}
+
+function scrollToBottom() {
+  window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+  logEvent('info', 'scrollTo bottom')
+}
+
+function blurAll() {
+  INPUTS.forEach(id => document.getElementById(id)?.blur())
+  logEvent('info', 'blur all inputs')
+}
+
+function focusNext() {
+  const id = INPUTS[state.focusCycle % INPUTS.length]
+  state.focusCycle++
+  const el = document.getElementById(id)
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  setTimeout(() => el.focus(), 300)
+  logEvent('info', `programmatic focus → ${id}`)
+}
+
+function clearLog() {
+  document.getElementById('event-log').innerHTML = ''
+}
+
+// ─── focus / blur handlers ────────────────────────────────────
+function onFocus(id) {
+  setDebugVal('d-focus', id)
+  const snap = snapViewport()
+  logEvent('focus', `focus → ${id} | ${snap}`)
+  // Delay to capture post-keyboard state
+  setTimeout(() => {
+    logEvent('focus', `focus (300ms) → ${id} | ${snapViewport()}`)
+    updateDebug()
+  }, 300)
+  setTimeout(() => {
+    logEvent('focus', `focus (600ms) → ${id} | ${snapViewport()}`)
+    updateDebug()
+  }, 600)
+}
+
+function onBlur(id) {
+  setDebugVal('d-focus', 'none')
+  const snap = snapViewport()
+  logEvent('blur', `blur ← ${id} | ${snap}`)
+  setTimeout(() => {
+    logEvent('blur', `blur (300ms) ← ${id} | ${snapViewport()}`)
+    updateDebug()
+  }, 300)
+  setTimeout(() => {
+    logEvent('blur', `blur (600ms) ← ${id} | ${snapViewport()}`)
+    updateDebug()
+  }, 600)
+}
+
+// ─── event log ───────────────────────────────────────────────
+function logEvent(type, msg) {
+  const log = document.getElementById('event-log')
+  const el  = document.createElement('div')
+  const ts  = new Date().toISOString().slice(11, 23)
+  el.innerHTML = `<span class="ts">${ts}</span> <span class="${type}-ev">${escapeHtml(msg)}</span>`
+  log.appendChild(el)
+  log.scrollTop = log.scrollHeight
+}
+
+function escapeHtml(s) {
+  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+}
+
+// ─── viewport snapshot ───────────────────────────────────────
+function snapViewport() {
+  const vv = window.visualViewport
+  const lv = `lv=${window.innerWidth}×${window.innerHeight}`
+  const sc = `scr=${Math.round(window.scrollX)},${Math.round(window.scrollY)}`
+  if (!vv) return `${lv} ${sc} (no vv)`
+  const vs = `vv=${Math.round(vv.width)}×${Math.round(vv.height)}`
+  const vo = `off=${Math.round(vv.offsetLeft)},${Math.round(vv.offsetTop)}`
+  const vp = `page=${Math.round(vv.pageLeft)},${Math.round(vv.pageTop)}`
+  return `${lv} ${vs} ${sc} ${vo} ${vp}`
+}
+
+// ─── event listeners ─────────────────────────────────────────
+window.addEventListener('scroll', () => {
+  updateDebug()
+  logEvent('scroll', `window.scroll → scrollY=${Math.round(window.scrollY)}`)
+}, { passive: true })
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    updateDebug()
+    logEvent('vv', `vv resize → ${Math.round(window.visualViewport.width)}×${Math.round(window.visualViewport.height)}`)
+  })
+  window.visualViewport.addEventListener('scroll', () => {
+    updateDebug()
+    logEvent('vv', `vv scroll → off=${Math.round(window.visualViewport.offsetTop)} page=${Math.round(window.visualViewport.pageTop)}`)
+  })
+}
+
+// ─── init ────────────────────────────────────────────────────
+updateDebug()
+setInterval(updateDebug, 500)
+logEvent('info', 'page loaded — ' + navigator.userAgent.slice(0, 80))
+</script>
+</body>
+</html>
