@@ -1,0 +1,303 @@
+<!doctype html>
+<html>
+  <head>
+        <meta charset="utf-8">
+        <title>Bluetooth Health Check</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+        
+        <style>
+            body {
+                margin: 0 auto;
+                max-width: 50em;
+                color: #555;
+                font-family: "Helvetica", "Arial", sans-serif;
+                line-height: 1.5;
+                padding: 4em 1em;
+            }
+            h2 {
+                margin-top: 1em;
+                padding-top: 1em;
+            }
+            h1, h2, strong {
+                color: #333;
+            }
+            code, pre {
+                background: #f5f7f9;
+                border-bottom: 1px solid #d8dee9;
+            }
+            code {
+                padding: 4px 8px;
+                vertical-align: text-bottom;
+            }
+            pre {
+                padding: 1em;
+            }
+            button {
+                margin-right: 1em;
+            }
+            div {
+                padding: 1em;
+            }
+        </style>
+
+        <script type="text/javascript">
+            const anyConfig = ({acceptAllDevices: true})
+
+
+            const BT = {
+                receiveCharacteristicUUID: '00001001-0000-1000-8000-00805f9b34fb',
+                serviceUUID: '0000fde4-0000-1000-8000-00805f9b34fb',
+                transmitCharacteristicUUID: '00001000-0000-1000-8000-00805f9b34fb',
+                transportServiceUUID: '0000fe18-0000-1000-8000-00805f9b34fb',
+            }
+            const DEVICE_PROBE = '68013969E67FD531AC63B3646576613C'
+            const myConfig = ({
+            filters: [{
+                services: [BT.serviceUUID] }],
+                optionalServices: [BT.transportServiceUUID],
+            })
+
+            const byteArrayFromHexString = (hexString) =>
+                new Uint8Array(hexString.match(/.{1,2}/g).map(byte => parseInt(byte, 16)))
+
+            const byteToHexString = (byte) =>
+                '' + ('0' + (byte & 0xFF).toString(16)).slice(-2)
+
+            const byteArrayToHexString = (byteArray) =>
+                Array.from(byteArray, byteToHexString).join(' ')
+
+            const checkAvailability = async () => {
+                if (navigator.bluetooth === undefined) {
+                    let msg = `Bluetooth is not supported by this browser`
+                    console.log('checkAvailability', msg)
+                    document.getElementById('availability').innerHTML = msg
+                    return
+                }
+                try {
+                    let isAvailable = await navigator.bluetooth.getAvailability()
+                    let msg = `Bluetooth is ${isAvailable ? 'available' : 'unavailable'}`
+                    console.log('checkAvailability', msg)
+                    document.getElementById('availability').innerHTML = msg
+                } catch (error) {
+                    console.error('checkAvailability', error)
+                    document.getElementById('availability').innerHTML = error
+                }
+            }
+
+            var devices = []
+            var connections = []
+            var results = {}
+
+            function updateStatus() {
+              if (devices.length == 0) {
+                document.getElementById('status').innerHTML = 'ready'
+              } else {
+                let msg = devices.map(d => `<br>${d.id} "${d.name} ${results[d.id]}"`)
+                document.getElementById('status').innerHTML = msg
+              }
+            }
+
+            window.onload = function() {
+              setInterval(updateStatus, 100);
+            };
+
+            async function requestDevice(options, id) {
+              console.log('requestDevice')
+                try {
+                    let device = await navigator.bluetooth.requestDevice(options)
+                    devices.push(device)
+                    results[device.id] = 'added'
+                    // let msg = devices.map(d => `Device: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+                    // console.log('requestDevice', msg)
+                    // document.getElementById(id).innerHTML = msg
+                } catch (error) {
+                    console.error('requestDevice', error)
+                    document.getElementById(id).innerHTML = error
+                }
+            }
+
+            async function connectall() {
+              console.log('connectall')
+              let promises = devices.map(d => {
+                return async () => {
+                  return new Promise((resolve, reject) => {
+                      console.log(`Connect device: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+                      setTimeout(async () => {
+                        console.log(`Connecting now: ${d.id} "${d.name}"`)
+                        try {
+                          let server = await d.gatt.connect()
+                          if (d.gatt.connected) {
+                            console.log(`Connected: ${d.id} "${d.name}"`)
+                            results[d.id] = 'connected'
+                            resolve(server)
+                          } else {
+                            console.warn(`Connect failed: ${d.id} "${d.name}"`)
+                            results[d.id] = 'disconnected'
+                            reject()
+                          }
+                        } catch (error) {
+                          console.error(`Connect error: ${d.id} "${d.name}"`, error)
+                          reject(error)
+                        }
+                      }, 5000)
+                  })
+                }
+              })
+              for (const foo of promises) {
+                let server = await foo()
+                connections.push(server)
+                console.log('Added connection')
+              }
+            }
+
+            async function killall() {
+                try {
+                    for (var d of devices) {
+                        console.log(`Kill device: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+                        d.gatt.disconnect()
+                        results[d.id] = 'disconnected'
+                    }
+                    devices.forEach((d, index) => {
+                        console.log(`After: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+                    })
+                    devices = []
+                    connections = []
+                } catch (error) {
+                    console.error('killall', error)
+                }
+            }
+
+            const probeMyDevice = async(server) => {
+                try {
+                    //let server = await device.gatt?.connect()
+                    if (!server.device.gatt.connected) {
+                      return Promise.resolve('not connected')
+                    }
+
+                    const cleanup = () => {
+                        if (server !== undefined) {
+                            server.disconnect()
+                            server = undefined
+                        }
+                    }
+
+                    const service = await server.getPrimaryService(BT.transportServiceUUID)
+                    const tx = await service.getCharacteristic(BT.transmitCharacteristicUUID)
+                    if (tx === undefined) {
+                        cleanup()
+                        let msg = 'getCharacteristic for transmit failed'
+                        console.warn(msg)
+                        return Promise.resolve(msg)
+                    }
+
+                    const rx = await service.getCharacteristic(BT.receiveCharacteristicUUID)
+                    if (rx === undefined) {
+                        cleanup()
+                        let msg = 'getCharacteristic for receive failed'
+                        console.warn(msg)
+                        return Promise.resolve(msg)
+                    }
+
+                    let resolveResult = undefined
+
+                    const listener = (e) => {
+                        const gatt = e.target
+                        if (gatt.value === undefined) {
+                            cleanup()
+                            const msg = 'characteristicvaluechanged: empty response'
+                            console.warn(msg)
+                            resolveResult(msg)
+                        }
+
+                        const bytes = new Uint8Array(gatt.value.buffer)
+                        const bytesStr = byteArrayToHexString(bytes)
+                        // cleanup()
+                        resolveResult(bytesStr)
+                    }
+
+                    const pendingResult = new Promise((resolve, reject) => {
+                      resolveResult = resolve
+
+                      const outMsg = byteArrayFromHexString(DEVICE_PROBE)
+                      rx.startNotifications()
+                      tx.writeValue(outMsg)
+
+                      setTimeout(() => {
+                          rx.removeEventListener('characteristicvaluechanged', listener)
+                          cleanup()
+                          reject('Timeout waiting for response')
+                      }, 5000)
+                    })
+
+                    rx.addEventListener('characteristicvaluechanged', listener)
+                    return await pendingResult
+
+                } catch (error) {
+                    console.warn({ message: `${error}`, name: 'diagnostic_error' })
+                    return Promise.resolve(`${error}`)
+                }
+            }
+
+            async function queryall() {
+              console.log('queryall')
+              let promises = connections.map(server => {
+                return async () => {
+                  return new Promise((resolve, reject) => {
+                    try {
+                      let d = server.device
+                      console.log(`Query device: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+                      results[d.id] = 'querying...'
+                      probeMyDevice(server).then(result => {
+                        //console.log(`Result for ${d.id}: ${result}`)
+                        results[d.id] = result
+                        resolve(`Result for ${d.id} "${d.name}": - ${result}`)
+                      })
+                    } catch (error) {
+                      console.error('queryall', d.id, d.name, error)
+                    }
+                  })
+                }
+              })
+              for (const foo of promises) {
+                let answer = await foo()
+                console.log(answer)
+              }
+              devices.forEach((d, index) => {
+                  console.log(`After: ${d.id} "${d.name}" connected=${d.gatt.connected}`)
+              })
+            }
+
+
+        </script>
+    </head>
+ <body>
+<h2>Bluetooth Status</h2>
+        <div>
+            <button onclick="checkAvailability()">Check Availability</button>
+            <code id="availability">click button to check availability</code>
+        </div>
+        <div>
+            <button onclick="requestDevice(anyConfig, 'anyDevice')">Choose Any Device</button>
+            <code id="anyDevice">click button to choose a device</code>
+        </div>
+        <div>
+            <button onclick="requestDevice(myConfig, 'myDevice')">Choose My Device</button>
+            <code id="myDevice">click button to choose my device</code>
+        </div>
+        <div>
+          <button onclick="connectall()">Connect All</button>
+        </div>
+        <div>
+          <button onclick="queryall()">Query All</button>
+        </div>
+        <div>
+            <button onclick="killall()">Kill All</button>
+        </div>
+        <h2>Status</h2>
+        <div>
+          <code id="status">loading</code>
+        </div>
+        <h2>Links</h2>
+        <div>Chrome Diagnostics: chrome://bluetooth-internals</div>
+  </body>
+</html>
