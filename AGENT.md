@@ -11,4 +11,4 @@ dist - deploy arena
 
 `Makefile` has a `deploy` target that copies the files to the published `dist` folder.
 
-Auto deployed to Netlify when commit is pushed.
+Auto deployed to Netlify when commit is pushed, production URL is `https://magnificent-mermaid-370840.netlify.app`.
