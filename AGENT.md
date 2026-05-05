@@ -7,6 +7,8 @@ A personal static web technology demo collection, one HTML file per demo. No ext
 src - all source files, `index.html` links to every demo page
 dist - deploy arena
 
+When adding a new page **always** add a link to index.html and the Makefile.
+
 ## Deploy
 
 `Makefile` has a `deploy` target that copies the files to the published `dist` folder.
