@@ -7,7 +7,12 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
-    html, body {
+    html {
+      max-width: 100%;
+      overflow-x: clip; /* clip avoids creating a scroll container, preserving body→viewport overflow propagation on iOS Safari */
+    }
+
+    body {
       max-width: 100%;
       overflow-x: hidden;
     }
