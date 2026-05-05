@@ -6,6 +6,6 @@ DEMOS := src/cafe.html
 deploy:
 	-rm -rf dist
 	mkdir -p dist
-	cp ${FIXED) dist/
+	cp $(FIXED) dist/
 	cp $(DEMOS) dist/
 
