@@ -1,0 +1,561 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Fixed App – Keyboard Stability Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /*
+     * Lock the document completely.
+     * body { position: fixed } is the most reliable way to prevent ALL scrolling
+     * on iOS — including bounce, rubber-band, and Safari's keyboard-triggered
+     * visual-viewport shift from ever reaching the document scroll position.
+     */
+    html {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      width: 100%;
+      height: 100%;
+      position: fixed;     /* <- key: kills document scrolling on iOS */
+      overflow: hidden;
+      background: #000;
+    }
+
+    /* ── App shell ── */
+    #app {
+      position: absolute;
+      top: 0; left: 0; right: 0; bottom: 0;
+      display: flex;
+      flex-direction: column;
+      background: #f0f2f5;
+      /*
+       * JS applies transform: translateY(vv.offsetTop) here when "compensate" is ON.
+       * This counteracts iOS shifting the visual viewport when the keyboard opens.
+       */
+    }
+
+    /* ── App bar ── */
+    #app-bar {
+      flex-shrink: 0;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      background: #1a1a2e;
+      color: #e8eaff;
+      padding: 10px 14px;
+      padding-top: max(10px, env(safe-area-inset-top));
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    #app-bar h1 {
+      font-size: 15px;
+      font-weight: 600;
+      flex: 1;
+      letter-spacing: -0.2px;
+    }
+
+    #stability-badge {
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 10px;
+      padding: 3px 8px;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.12);
+      letter-spacing: 0.3px;
+    }
+
+    #stability-badge.stable  { background: rgba(0,210,110,0.28); color: #7fffb8; }
+    #stability-badge.shifted { background: rgba(255,70,70,0.30);  color: #ffaaaa; }
+
+    /* ── Controls ── */
+    #controls {
+      flex-shrink: 0;
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+      padding: 7px 10px;
+      background: #fff;
+      border-bottom: 1px solid #e4e4e8;
+    }
+
+    .ctl {
+      font-size: 11px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      padding: 4px 9px;
+      border-radius: 5px;
+      border: 1.5px solid #d0d0d8;
+      background: #f5f5f7;
+      color: #444;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+    }
+
+    .ctl.on {
+      background: #e8f0fe;
+      border-color: #4285f4;
+      color: #1a56c4;
+    }
+
+    /* ── Debug panel ── */
+    #debug-panel {
+      flex-shrink: 0;
+      display: none;
+      background: #1a1a2e;
+      padding: 6px 12px 7px;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 10.5px;
+      line-height: 1.8;
+      color: #9090b0;
+    }
+
+    #debug-panel.visible { display: block; }
+
+    #debug-panel .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    #debug-panel .k   { color: #5a5a7a; }
+    #debug-panel .v   { color: #7affcc; }
+    #debug-panel .v.warn { color: #ffcc44; }
+
+    /* ── Message list ── */
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding: 14px 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .msg {
+      max-width: 78%;
+      padding: 9px 13px;
+      border-radius: 18px;
+      font-size: 14px;
+      line-height: 1.45;
+      font-family: system-ui, -apple-system, sans-serif;
+    }
+
+    .msg.them {
+      background: #fff;
+      align-self: flex-start;
+      border-bottom-left-radius: 4px;
+      color: #1a1a2e;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.08);
+    }
+
+    .msg.me {
+      background: #4285f4;
+      color: #fff;
+      align-self: flex-end;
+      border-bottom-right-radius: 4px;
+    }
+
+    /* ── Compose bar ── */
+    #compose {
+      flex-shrink: 0;
+      display: flex;
+      align-items: flex-end;
+      gap: 8px;
+      padding: 8px 12px;
+      padding-bottom: max(8px, env(safe-area-inset-bottom));
+      background: #fff;
+      border-top: 1px solid #e4e4e8;
+    }
+
+    #compose-input {
+      flex: 1;
+      font-size: 16px; /* 16px prevents iOS auto-zoom on focus */
+      font-family: system-ui, -apple-system, sans-serif;
+      border: 1.5px solid #d0d0d8;
+      border-radius: 22px;
+      padding: 9px 16px;
+      outline: none;
+      background: #f5f5f7;
+      color: #1a1a2e;
+      -webkit-appearance: none;
+      min-height: 40px;
+    }
+
+    #compose-input:focus {
+      border-color: #4285f4;
+      background: #fff;
+    }
+
+    #send-btn {
+      flex-shrink: 0;
+      width: 40px;
+      height: 40px;
+      border-radius: 50%;
+      border: none;
+      background: #4285f4;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #send-btn svg { width: 18px; height: 18px; fill: #fff; }
+
+    #send-btn:active { background: #2a6de0; }
+
+    /* ── Log ── */
+    #event-log {
+      flex-shrink: 0;
+      display: none;
+      height: 100px;
+      overflow-y: auto;
+      background: #111;
+      color: #aaa;
+      font-family: "SF Mono", "Fira Code", monospace;
+      font-size: 10px;
+      line-height: 1.7;
+      padding: 6px 10px;
+      border-top: 1px solid #333;
+    }
+
+    #event-log.visible { display: block; }
+    #event-log .ts     { color: #444; }
+    #event-log .ev-vv  { color: #ff88cc; }
+    #event-log .ev-foc { color: #7affcc; }
+    #event-log .ev-inf { color: #ffcc44; }
+  </style>
+</head>
+<body>
+
+<div id="app">
+
+  <!-- App bar -->
+  <div id="app-bar">
+    <h1>Fixed App</h1>
+    <span id="stability-badge">—</span>
+  </div>
+
+  <!-- Controls -->
+  <div id="controls">
+    <button class="ctl on"  id="btn-comp"   onclick="toggleCompensate()">vv-compensate: ON</button>
+    <button class="ctl on"  id="btn-ps"     onclick="togglePreventScroll()">preventScroll: ON</button>
+    <button class="ctl"     id="btn-debug"  onclick="toggleDebug()">debug</button>
+    <button class="ctl"     id="btn-log"    onclick="toggleLog()">log</button>
+    <button class="ctl"     id="btn-reset"  onclick="resetBaseline()">↺ baseline</button>
+  </div>
+
+  <!-- Debug panel (inside the app so it inherits the compensation transform) -->
+  <div id="debug-panel">
+    <div class="row">
+      <span><span class="k">layout </span><span class="v" id="d-lv">–</span></span>
+      <span><span class="k">visual </span><span class="v" id="d-vv">–</span></span>
+      <span><span class="k">vv.offsetTop </span><span class="v" id="d-off">–</span></span>
+      <span><span class="k">scrollY </span><span class="v" id="d-scroll">–</span></span>
+    </div>
+    <div class="row" style="margin-top:2px">
+      <span><span class="k">body.pos </span><span class="v" id="d-bpos">–</span></span>
+      <span><span class="k">appBar.visualTop </span><span class="v" id="d-abtop">–</span></span>
+      <span><span class="k">compose.visualBot </span><span class="v" id="d-cbbot">–</span></span>
+    </div>
+  </div>
+
+  <!-- Messages (scrollable within the app, not the page) -->
+  <div id="messages">
+    <div class="msg them">Hey — tap the input below and see what happens.</div>
+    <div class="msg me">Testing if the layout stays fixed when the keyboard opens.</div>
+    <div class="msg them">Toggle "vv-compensate" OFF to see the raw iOS shift.</div>
+    <div class="msg me">The stability badge shows whether anything moved visually.</div>
+    <div class="msg them">With compensation ON, the app bar and compose bar should stay pinned.</div>
+    <div class="msg me">
+      The key: <code style="font-size:12px;background:rgba(255,255,255,0.2);padding:1px 4px;border-radius:3px">visualViewport.offsetTop</code>
+      tells us how far iOS shifted the view.
+    </div>
+    <div class="msg them">We translate the whole app shell by that amount to compensate.</div>
+    <div class="msg me">And focus({ preventScroll: true }) stops Safari's own auto-scroll.</div>
+    <div class="msg them">Try toggling preventScroll OFF too — notice Safari fights back.</div>
+    <div class="msg me">Scroll this list up and down — the compose bar should never move.</div>
+    <div class="msg them">Tap an input, type something, dismiss keyboard — all stable?</div>
+    <div class="msg them" style="opacity:0.5;font-size:12px">↓ more content below ↓</div>
+    <div class="msg them">Line 12 — waltz bad nymph for quick jigs vex.</div>
+    <div class="msg me">Line 13 — the five boxing wizards jump quickly.</div>
+    <div class="msg them">Line 14 — sphinx of black quartz judge my vow.</div>
+    <div class="msg me">Line 15 — how vexingly quick daft zebras jump.</div>
+    <div class="msg them">Now try the input at the bottom — this is the hardest case.</div>
+  </div>
+
+  <!-- Compose bar — the critical element; must never move when keyboard opens -->
+  <div id="compose">
+    <input type="text" id="compose-input"
+      placeholder="Message…"
+      autocomplete="off" autocorrect="off" autocapitalize="sentences" spellcheck="false"
+      onfocus="onInputFocus('compose-input')"
+      onblur="onInputBlur('compose-input')">
+    <button id="send-btn" onclick="sendMessage()">
+      <svg viewBox="0 0 24 24"><path d="M2 21l21-9L2 3v7l15 2-15 2z"/></svg>
+    </button>
+  </div>
+
+  <!-- Event log -->
+  <div id="event-log"></div>
+
+</div><!-- #app -->
+
+<script>
+// ─── configuration state ──────────────────────────────────────
+let compensateEnabled  = true;
+let preventScrollEnabled = true;
+
+// ─── visual viewport compensation ────────────────────────────
+//
+// On iOS, when the keyboard opens, WebKit shrinks the visual viewport
+// and sets visualViewport.offsetTop to a non-zero value. The layout
+// viewport (and body { position: fixed }) does NOT change size, so any
+// content appears to drift upward relative to what the user sees.
+//
+// Fix: translate the entire app shell by offsetTop to follow the visual
+// viewport. The user sees no movement; the layout is preserved.
+//
+const app = document.getElementById('app');
+
+function compensate() {
+  const vv   = window.visualViewport;
+  const offY = vv ? Math.round(vv.offsetTop) : 0;
+
+  if (compensateEnabled) {
+    app.style.transform = offY ? `translateY(${offY}px)` : '';
+  } else {
+    app.style.transform = '';
+  }
+
+  checkStability();
+  updateDebug();
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', compensate, { passive: true });
+  window.visualViewport.addEventListener('scroll', compensate, { passive: true });
+}
+
+// ─── stability tracking ───────────────────────────────────────
+//
+// We measure whether the app bar and compose bar are still at their
+// baseline visual positions. Visual position = element's layout-viewport
+// coordinate minus visualViewport.offsetTop.
+//
+// At baseline (no keyboard): offsetTop == 0, so visualTop == rect.top.
+// With keyboard + compensation: offsetTop > 0, transform shifts rect.top
+//   down by offsetTop, so rect.top - offsetTop ≈ original rect.top. ✓
+// With keyboard + no compensation: rect.top unchanged, but offsetTop > 0,
+//   so visual position = rect.top - offsetTop < original. ✗
+//
+let baseline = {}; // { 'app-bar': top, 'compose': bottom }
+let baselineSet = false;
+
+function captureBaseline() {
+  const vv = window.visualViewport;
+  const offY = vv ? vv.offsetTop : 0;
+  const barRect = document.getElementById('app-bar').getBoundingClientRect();
+  const cmpRect = document.getElementById('compose').getBoundingClientRect();
+  baseline = {
+    barTop:     Math.round(barRect.top - offY),
+    composeBot: Math.round(cmpRect.bottom - offY),
+  };
+  baselineSet = true;
+  updateBadge('baseline set', '');
+  log('inf', `baseline: barTop=${baseline.barTop} composeBot=${baseline.composeBot}`);
+}
+
+function checkStability() {
+  if (!baselineSet) return;
+  const vv   = window.visualViewport;
+  const offY = vv ? vv.offsetTop : 0;
+  const barRect = document.getElementById('app-bar').getBoundingClientRect();
+  const cmpRect = document.getElementById('compose').getBoundingClientRect();
+
+  const barTop     = Math.round(barRect.top - offY);
+  const composeBot = Math.round(cmpRect.bottom - offY);
+
+  const barDrift = Math.abs(barTop - baseline.barTop);
+  const cmpDrift = Math.abs(composeBot - baseline.composeBot);
+  const shifted  = barDrift > 2 || cmpDrift > 2;
+
+  if (shifted) {
+    updateBadge(`⚠ shifted  bar:${barDrift > 2 ? '+'+barDrift : '✓'}  compose:${cmpDrift > 2 ? '+'+cmpDrift : '✓'}`, 'shifted');
+  } else {
+    updateBadge('✓ stable', 'stable');
+  }
+}
+
+function resetBaseline() {
+  baselineSet = false;
+  requestAnimationFrame(() => requestAnimationFrame(captureBaseline));
+}
+
+function updateBadge(text, cls) {
+  const b = document.getElementById('stability-badge');
+  b.textContent = text;
+  b.className = cls;
+}
+
+// ─── touch interception for focus ─────────────────────────────
+//
+// When the browser focuses an input natively, it calls focus() with
+// preventScroll: false (the default), triggering an auto-scroll of the
+// visual viewport. We intercept touchend, prevent the default focus,
+// and call focus({ preventScroll: true }) ourselves.
+//
+// Critical iOS rule: focus() MUST happen synchronously inside the user
+// gesture (touchend). Putting it in setTimeout stops the keyboard from
+// appearing on older WKWebView.
+//
+let touchStartY = 0;
+
+function attachFocusInterceptor(el) {
+  el.addEventListener('touchstart', e => {
+    touchStartY = e.touches[0]?.clientY ?? 0;
+  }, { passive: true });
+
+  el.addEventListener('touchend', e => {
+    if (!preventScrollEnabled) return; // fall through to browser default
+    const deltaY = Math.abs((e.changedTouches[0]?.clientY ?? 0) - touchStartY);
+    if (deltaY > 10) return; // scroll gesture, not a tap — skip
+    e.preventDefault();                        // block browser's auto-focus
+    el.focus({ preventScroll: true });         // focus without auto-scroll
+  }, { passive: false });
+}
+
+document.querySelectorAll('input, textarea').forEach(attachFocusInterceptor);
+
+// ─── focus/blur callbacks ─────────────────────────────────────
+function onInputFocus(id) {
+  log('foc', `focus → #${id}`);
+  setTimeout(() => { checkStability(); updateDebug(); }, 350);
+  setTimeout(() => { checkStability(); updateDebug(); }, 700);
+}
+
+function onInputBlur(id) {
+  log('foc', `blur  ← #${id}`);
+  // offsetTop sometimes lingers after keyboard hides; wait for it to settle
+  setTimeout(() => {
+    const offY = window.visualViewport?.offsetTop ?? 0;
+    if (offY !== 0) {
+      // Keyboard dismissed but offsetTop hasn't reset — force a compensate pass
+      compensate();
+      log('inf', `post-blur offsetTop=${offY} (lingering, compensating)`);
+    }
+    checkStability();
+    updateDebug();
+  }, 400);
+}
+
+// ─── send message ─────────────────────────────────────────────
+function sendMessage() {
+  const input = document.getElementById('compose-input');
+  const text  = input.value.trim();
+  if (!text) return;
+  const div = document.createElement('div');
+  div.className = 'msg me';
+  div.textContent = text;
+  const msgs = document.getElementById('messages');
+  msgs.appendChild(div);
+  msgs.scrollTop = msgs.scrollHeight;
+  input.value = '';
+  input.focus({ preventScroll: true });
+}
+
+// ─── toggles ──────────────────────────────────────────────────
+function toggleCompensate() {
+  compensateEnabled = !compensateEnabled;
+  const btn = document.getElementById('btn-comp');
+  btn.textContent = `vv-compensate: ${compensateEnabled ? 'ON' : 'OFF'}`;
+  btn.classList.toggle('on', compensateEnabled);
+  compensate();
+  log('inf', `vv-compensate → ${compensateEnabled ? 'ON' : 'OFF'}`);
+}
+
+function togglePreventScroll() {
+  preventScrollEnabled = !preventScrollEnabled;
+  const btn = document.getElementById('btn-ps');
+  btn.textContent = `preventScroll: ${preventScrollEnabled ? 'ON' : 'OFF'}`;
+  btn.classList.toggle('on', preventScrollEnabled);
+  log('inf', `preventScroll → ${preventScrollEnabled ? 'ON' : 'OFF'}`);
+}
+
+function toggleDebug() {
+  const panel = document.getElementById('debug-panel');
+  const btn   = document.getElementById('btn-debug');
+  const on    = panel.classList.toggle('visible');
+  btn.classList.toggle('on', on);
+  if (on) updateDebug();
+}
+
+function toggleLog() {
+  const logEl = document.getElementById('event-log');
+  const btn   = document.getElementById('btn-log');
+  const on    = logEl.classList.toggle('visible');
+  btn.classList.toggle('on', on);
+}
+
+// ─── debug display ────────────────────────────────────────────
+function updateDebug() {
+  const vv    = window.visualViewport;
+  const offY  = vv ? Math.round(vv.offsetTop) : 0;
+  const barRect = document.getElementById('app-bar').getBoundingClientRect();
+  const cmpRect = document.getElementById('compose').getBoundingClientRect();
+
+  const set = (id, val, warn) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    el.textContent = val;
+    el.className = warn ? 'v warn' : 'v';
+  };
+
+  set('d-lv',     `${window.innerWidth}×${window.innerHeight}`);
+  set('d-vv',     vv ? `${Math.round(vv.width)}×${Math.round(vv.height)}` : 'n/a');
+  set('d-off',    offY, offY !== 0);
+  set('d-scroll', `${Math.round(window.scrollX)},${Math.round(window.scrollY)}`,
+                  window.scrollY !== 0);
+  set('d-bpos',   document.body.style.position || '(default)');
+  set('d-abtop',  `${Math.round(barRect.top - offY)}px`, Math.abs(barRect.top - offY - (baseline.barTop ?? 0)) > 2);
+  set('d-cbbot',  `${Math.round(cmpRect.bottom - offY)}px`, Math.abs(cmpRect.bottom - offY - (baseline.composeBot ?? 0)) > 2);
+}
+
+setInterval(updateDebug, 500);
+
+// ─── event log ────────────────────────────────────────────────
+function log(type, msg) {
+  const logEl = document.getElementById('event-log');
+  const el    = document.createElement('div');
+  const ts    = new Date().toISOString().slice(11, 23);
+  const cls   = type === 'foc' ? 'ev-foc' : type === 'vv' ? 'ev-vv' : 'ev-inf';
+  el.innerHTML = `<span class="ts">${ts}</span> <span class="${cls}">${msg.replace(/</g,'&lt;')}</span>`;
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+if (window.visualViewport) {
+  window.visualViewport.addEventListener('resize', () => {
+    const vv = window.visualViewport;
+    log('vv', `vv resize → ${Math.round(vv.width)}×${Math.round(vv.height)}  offsetTop=${Math.round(vv.offsetTop)}`);
+  }, { passive: true });
+  window.visualViewport.addEventListener('scroll', () => {
+    log('vv', `vv scroll → offsetTop=${Math.round(window.visualViewport.offsetTop)}`);
+  }, { passive: true });
+}
+
+window.addEventListener('scroll', () => {
+  log('inf', `window scroll → scrollY=${Math.round(window.scrollY)}`);
+}, { passive: true });
+
+// ─── init ─────────────────────────────────────────────────────
+requestAnimationFrame(() => {
+  requestAnimationFrame(() => {
+    captureBaseline();
+    updateDebug();
+    log('inf', `init — ${navigator.userAgent.slice(0, 60)}`);
+  });
+});
+</script>
+</body>
+</html>

@@ -1,7 +1,7 @@
 .PHONY: deploy
 
 FIXED := src/index.html
-DEMOS := src/cafe.html src/scroll-lock.html
+DEMOS := src/cafe.html src/scroll-lock.html src/fixed-app.html
 
 deploy:
 	-rm -rf dist
