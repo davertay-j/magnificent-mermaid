@@ -37,8 +37,10 @@
 
     /* ── sticky debug bar ── */
     #debug-bar {
-      position: sticky;
+      position: fixed;
       top: 0;
+      left: 0;
+      right: 0;
       z-index: 100;
       width: 100%;
       overflow: hidden;
@@ -234,7 +236,7 @@
 <body>
 
 <!-- ═══════════════════════════════════════════════════════════ -->
-<!--  STICKY DEBUG BAR                                          -->
+<!--  DEBUG BAR                                                 -->
 <!-- ═══════════════════════════════════════════════════════════ -->
 <div id="debug-bar">
   <div class="row" id="vp-row">
@@ -585,6 +587,17 @@ function snapViewport() {
   return `${lv} ${vs} ${sc} ${vo} ${vp}`
 }
 
+// ─── pin debug bar to visual viewport top ────────────────────
+// position:fixed is anchored to the layout viewport, which doesn't shrink
+// when the iOS keyboard opens. We manually track the visual viewport offset
+// so the bar stays visible above the keyboard.
+function pinDebugBar() {
+  const vv = window.visualViewport
+  if (!vv) return
+  const bar = document.getElementById('debug-bar')
+  bar.style.transform = `translateY(${vv.offsetTop}px)`
+}
+
 // ─── event listeners ─────────────────────────────────────────
 window.addEventListener('scroll', () => {
   updateDebug()
@@ -593,16 +606,19 @@ window.addEventListener('scroll', () => {
 
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', () => {
+    pinDebugBar()
     updateDebug()
     logEvent('vv', `vv resize → ${Math.round(window.visualViewport.width)}×${Math.round(window.visualViewport.height)}`)
   })
   window.visualViewport.addEventListener('scroll', () => {
+    pinDebugBar()
     updateDebug()
     logEvent('vv', `vv scroll → off=${Math.round(window.visualViewport.offsetTop)} page=${Math.round(window.visualViewport.pageTop)}`)
   })
 }
 
 // ─── init ────────────────────────────────────────────────────
+pinDebugBar()
 updateDebug()
 setInterval(updateDebug, 500)
 logEvent('info', 'page loaded — ' + navigator.userAgent.slice(0, 80))
