@@ -240,6 +240,7 @@
   <div id="controls">
     <button class="ctl on"  id="btn-comp"   onclick="toggleCompensate()">vv-compensate: ON</button>
     <button class="ctl on"  id="btn-ps"     onclick="togglePreventScroll()">preventScroll: ON</button>
+    <button class="ctl on"  id="btn-nslock" onclick="toggleNativeScrollLock()">nativeScrollLock: ON</button>
     <button class="ctl"     id="btn-debug"  onclick="toggleDebug()">debug</button>
     <button class="ctl"     id="btn-log"    onclick="toggleLog()">log</button>
     <button class="ctl"     id="btn-reset"  onclick="resetBaseline()">↺ baseline</button>
@@ -257,6 +258,10 @@
       <span><span class="k">body.pos </span><span class="v" id="d-bpos">–</span></span>
       <span><span class="k">appBar.visualTop </span><span class="v" id="d-abtop">–</span></span>
       <span><span class="k">compose.visualBot </span><span class="v" id="d-cbbot">–</span></span>
+    </div>
+    <div class="row" style="margin-top:2px">
+      <span><span class="k">native host </span><span class="v" id="d-host">–</span></span>
+      <span><span class="k">scrollLock </span><span class="v" id="d-lock">–</span></span>
     </div>
   </div>
 
@@ -303,8 +308,92 @@
 
 <script>
 // ─── configuration state ──────────────────────────────────────
-let compensateEnabled  = true;
-let preventScrollEnabled = true;
+let compensateEnabled       = true;
+let preventScrollEnabled    = true;
+let nativeScrollLockEnabled = true;
+
+// ─── native scroll-lock bridge ────────────────────────────────
+//
+// Even with body { position: fixed } and visualViewport compensation,
+// iOS WKWebView still lets the user drag the underlying scrollView
+// (rubber-banding, pan-with-keyboard, etc). Once that scrollView moves,
+// our compensation transform fights the browser and the layout drifts.
+//
+// The reliable fix lives on the native side: while the keyboard is up,
+// set webView.scrollView.isScrollEnabled = false. This page tells the
+// host when to do that via WKScriptMessageHandler.
+//
+// ── iOS host integration (Swift) ──
+//   let ucc = webView.configuration.userContentController
+//   ucc.add(self, name: "keyboardScrollLock")
+//
+//   func userContentController(_ ucc: WKUserContentController,
+//                              didReceive message: WKScriptMessage) {
+//       guard message.name == "keyboardScrollLock",
+//             let body = message.body as? [String: Any],
+//             let locked = body["locked"] as? Bool else { return }
+//       webView.scrollView.isScrollEnabled = !locked
+//       // Optional: also reset contentOffset to .zero on lock to undo
+//       // any pan that was already in flight.
+//       if locked { webView.scrollView.setContentOffset(.zero, animated: false) }
+//   }
+//
+// Message shape: { locked: Bool }
+//   true  → keyboard is up, please disable scrollView
+//   false → keyboard is down, please re-enable scrollView
+//
+const nativeHandler = (window.webkit
+  && window.webkit.messageHandlers
+  && window.webkit.messageHandlers.keyboardScrollLock) || null;
+
+let nativeLockState = false;  // last value sent to native, for de-dup
+
+function postNativeScrollLock(locked) {
+  if (!nativeHandler) return false;
+  try {
+    nativeHandler.postMessage({ locked: !!locked });
+    return true;
+  } catch (err) {
+    log('inf', `native postMessage failed: ${err && err.message || err}`);
+    return false;
+  }
+}
+
+function setNativeScrollLock(locked) {
+  // Honor the user toggle: if disabled, ensure native is released and bail.
+  if (!nativeScrollLockEnabled) {
+    if (nativeLockState) {
+      postNativeScrollLock(false);
+      nativeLockState = false;
+      log('inf', 'native scroll-lock force-released (toggle off)');
+    }
+    return;
+  }
+  if (locked === nativeLockState) return;
+  const ok = postNativeScrollLock(locked);
+  nativeLockState = locked;
+  log('inf', `native scroll-lock → ${locked ? 'LOCKED' : 'released'}${ok ? '' : ' (no host)'}`);
+}
+
+// Re-evaluate on every focus/blur and when the visual viewport reports a
+// keyboard-shaped change. Using the focused-input signal is the most
+// direct indicator that the keyboard is (or is about to be) active.
+function isKeyboardLikelyOpen() {
+  const ae = document.activeElement;
+  const focused = !!(ae && (ae.tagName === 'INPUT' || ae.tagName === 'TEXTAREA' || ae.isContentEditable));
+  if (focused) return true;
+  // Fallbacks for cases where focus moved without our handlers firing.
+  if (navigator.virtualKeyboard && navigator.virtualKeyboard.boundingRect) {
+    if (navigator.virtualKeyboard.boundingRect.height > 0) return true;
+  }
+  const vv = window.visualViewport;
+  if (vv && vv.offsetTop > 0) return true;
+  return false;
+}
+
+function syncNativeScrollLock() {
+  setNativeScrollLock(isKeyboardLikelyOpen());
+}
 
 // ─── visual viewport compensation ────────────────────────────
 //
@@ -328,6 +417,7 @@ function compensate() {
     app.style.transform = '';
   }
 
+  syncNativeScrollLock();
   checkStability();
   updateDebug();
 }
@@ -335,6 +425,16 @@ function compensate() {
 if (window.visualViewport) {
   window.visualViewport.addEventListener('resize', compensate, { passive: true });
   window.visualViewport.addEventListener('scroll', compensate, { passive: true });
+}
+
+// Virtual Keyboard API (host has this implemented per spec) — gives us
+// a direct signal independent of focus/visualViewport heuristics.
+if (navigator.virtualKeyboard) {
+  navigator.virtualKeyboard.addEventListener('geometrychange', () => {
+    const r = navigator.virtualKeyboard.boundingRect;
+    log('vv', `vk geometry → ${Math.round(r.width)}×${Math.round(r.height)}`);
+    syncNativeScrollLock();
+  });
 }
 
 // ─── stability tracking ───────────────────────────────────────
@@ -430,6 +530,9 @@ document.querySelectorAll('input, textarea').forEach(attachFocusInterceptor);
 // ─── focus/blur callbacks ─────────────────────────────────────
 function onInputFocus(id) {
   log('foc', `focus → #${id}`);
+  // Lock the native scroll view immediately on focus — *before* iOS has a
+  // chance to start panning the underlying scrollView for the keyboard.
+  setNativeScrollLock(true);
   setTimeout(() => { checkStability(); updateDebug(); }, 350);
   setTimeout(() => { checkStability(); updateDebug(); }, 700);
 }
@@ -444,6 +547,9 @@ function onInputBlur(id) {
       compensate();
       log('inf', `post-blur offsetTop=${offY} (lingering, compensating)`);
     }
+    // Release the native scroll lock once we're confident the keyboard has
+    // really gone (offsetTop settled and no other input is focused).
+    syncNativeScrollLock();
     checkStability();
     updateDebug();
   }, 400);
@@ -480,6 +586,17 @@ function togglePreventScroll() {
   btn.textContent = `preventScroll: ${preventScrollEnabled ? 'ON' : 'OFF'}`;
   btn.classList.toggle('on', preventScrollEnabled);
   log('inf', `preventScroll → ${preventScrollEnabled ? 'ON' : 'OFF'}`);
+}
+
+function toggleNativeScrollLock() {
+  nativeScrollLockEnabled = !nativeScrollLockEnabled;
+  const btn = document.getElementById('btn-nslock');
+  btn.textContent = `nativeScrollLock: ${nativeScrollLockEnabled ? 'ON' : 'OFF'}`;
+  btn.classList.toggle('on', nativeScrollLockEnabled);
+  // Re-sync state with current focus / keyboard. Disabling will release.
+  syncNativeScrollLock();
+  log('inf', `nativeScrollLock → ${nativeScrollLockEnabled ? 'ON' : 'OFF'}`
+            + (nativeHandler ? '' : ' (no host detected)'));
 }
 
 function toggleDebug() {
@@ -519,6 +636,11 @@ function updateDebug() {
   set('d-bpos',   document.body.style.position || '(default)');
   set('d-abtop',  `${Math.round(barRect.top - offY)}px`, Math.abs(barRect.top - offY - (baseline.barTop ?? 0)) > 2);
   set('d-cbbot',  `${Math.round(cmpRect.bottom - offY)}px`, Math.abs(cmpRect.bottom - offY - (baseline.composeBot ?? 0)) > 2);
+  set('d-host',   nativeHandler ? 'connected' : 'absent', !nativeHandler);
+  set('d-lock',   nativeScrollLockEnabled
+                    ? (nativeLockState ? 'LOCKED' : 'released')
+                    : 'disabled',
+                  nativeLockState);
 }
 
 setInterval(updateDebug, 500);
@@ -552,8 +674,10 @@ window.addEventListener('scroll', () => {
 requestAnimationFrame(() => {
   requestAnimationFrame(() => {
     captureBaseline();
+    syncNativeScrollLock();
     updateDebug();
     log('inf', `init — ${navigator.userAgent.slice(0, 60)}`);
+    log('inf', `native host: ${nativeHandler ? 'connected (keyboardScrollLock)' : 'absent'}`);
   });
 });
 </script>
