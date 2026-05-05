@@ -525,7 +525,7 @@ function attachFocusInterceptor(el) {
   }, { passive: false });
 }
 
-// document.querySelectorAll('input, textarea').forEach(attachFocusInterceptor);
+document.querySelectorAll('input, textarea').forEach(attachFocusInterceptor);
 
 // ─── focus/blur callbacks ─────────────────────────────────────
 function onInputFocus(id) {
