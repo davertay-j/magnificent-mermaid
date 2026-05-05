@@ -7,6 +7,11 @@
   <style>
     *, *::before, *::after { box-sizing: border-box; }
 
+    html, body {
+      max-width: 100%;
+      overflow-x: hidden;
+    }
+
     :root {
       --accent: #0066cc;
       --danger: #cc2200;
@@ -30,6 +35,8 @@
       position: sticky;
       top: 0;
       z-index: 100;
+      width: 100%;
+      overflow: hidden;
       background: #1a1a2e;
       color: #e0e0ff;
       font-family: var(--mono);
@@ -88,6 +95,9 @@
       font-family: var(--mono);
       font-size: 11px;
       color: #555;
+      overflow-wrap: break-word;
+      word-break: break-all;
+      max-width: 100%;
     }
 
     .ctrl-btn .state {
