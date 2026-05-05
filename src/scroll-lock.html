@@ -9,7 +9,11 @@
 
     html {
       max-width: 100%;
-      overflow-x: clip; /* clip avoids creating a scroll container, preserving body→viewport overflow propagation on iOS Safari */
+      /* overflow-x intentionally omitted: any non-visible value here (including clip)
+         prevents body overflow from propagating to the viewport (Chrome 108+), which
+         breaks document.body.style.overflow = "hidden". Horizontal clipping is handled
+         by body { overflow-x: hidden } below, which propagates correctly when html is
+         overflow: visible (the default). */
     }
 
     body {
