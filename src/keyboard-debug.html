@@ -1,0 +1,43 @@
+<!doctype html>
+<html>
+    <head>
+        <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <style>
+            html,
+            body {
+                height: 100%;
+                margin: 0;
+                padding: 0;
+                overflow: hidden;
+                position: relative;
+                top: 0px;
+                background: rgb(100, 255, 255);
+            }
+        </style>
+    </head>
+    <body>
+        <span>THIS TEXT IS AT THE TOP AND SHOULD ALWAYS BE VISIBLE</span>
+        <div style="padding: 20px; position: relative; top: 200px">
+            <p id="info">Tap the input, then check the values below.</p>
+            <input type="text" placeholder="Tap here to open keyboard" style="font-size: 16px; padding: 10px; width: 80%" />
+            <pre id="output" style="margin-top: 20px"></pre>
+        </div>
+        <script>
+            const input = document.querySelector('input');
+            const output = document.getElementById('output');
+            function report() {
+                output.textContent = [
+                    'body.getBoundingClientRect().top: ' + document.body.getBoundingClientRect().top,
+                    'document.documentElement.scrollTop: ' + document.documentElement.scrollTop,
+                    'document.body.scrollTop: ' + document.body.scrollTop,
+                    'visualViewport.offsetTop: ' + (window.visualViewport?.offsetTop ?? 'N/A'),
+                    'visualViewport.height: ' + (window.visualViewport?.height ?? 'N/A'),
+                    'window.innerHeight: ' + window.innerHeight,
+                ].join('\n');
+            }
+            input.addEventListener('focus', () => setTimeout(report, 500));
+            window.visualViewport?.addEventListener('resize', report);
+            window.visualViewport?.addEventListener('scroll', report);
+        </script>
+    </body>
+</html>
